@@ -97,11 +97,15 @@ const tick = async ($: EngineInterface): Promise<void> => {
   } catch {}
 }
 
-/** Reads a doc by uuid or link: its tabs, then each tab's open (you) paragraphs. Null on any failure. */
-const readDoc = async ($: EngineInterface, ref: string): Promise<Doc | null> => {
+/**
+ * Reads a doc by uuid or link: its tabs, then each tab's open (you) paragraphs.
+ * Null on any failure; 'gone' when the connector answers that the doc is not there for us
+ * (it answers deleted and unshared alike: reason "access").
+ */
+const readDoc = async ($: EngineInterface, ref: string): Promise<Doc | 'gone' | null> => {
   try {
     const head = await $.mcp.call(S.server, 'read', { ref: { object: 'project', id: ref } })
-    if (head.isError) return null
+    if (head.isError) return /"reason"\s*:\s*"access"/.test(textOf(head)) ? 'gone' : null
     const h = parseDocHead(textOf(head))
     if (!h || !h.tabs.length) return null
     const open: string[] = []
@@ -128,7 +132,15 @@ const readDoc = async ($: EngineInterface, ref: string): Promise<Doc | null> => 
 
 /** Recounts one doc and writes or removes its item. Returns false when the read failed (item kept). */
 const reconcileDoc = async ($: EngineInterface, ref: string): Promise<boolean> => {
-  const doc = await readDoc($, ref)
+  let doc = await readDoc($, ref)
+  if (doc === 'gone') {
+    // Ask twice in a row before trusting it, so one odd answer cannot drop an item.
+    doc = await readDoc($, ref)
+    if (doc === 'gone') {
+      await $.store.delete(`${prefix()}${ref}`)
+      return true
+    }
+  }
   if (!doc) return false
   const key = `${prefix()}${doc.id}`
   if (!doc.open.length) {

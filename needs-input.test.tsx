@@ -34,7 +34,7 @@ const xmlOf = (title: string, body: string) =>
   `<doc node='n' rev='2'><paragraph id='m.0' rev='1' h='x' heading='1'><text id='.1'>${title}</text></paragraph>` +
   `<paragraph id='.24' h='y' heading='2'><text id='.25'>Next steps</text></paragraph><list id='.35' kind='bullet'>${body}</list></doc>`
 
-type Doc = { title: string; xml: string; fail?: boolean }
+type Doc = { title: string; xml: string; fail?: boolean; gone?: boolean }
 
 // biome-ignore lint: the kit's `on`
 const engine = (on: any, docs: Record<string, Doc>, opts: { cwd?: () => string; calls?: string[] } = {}) => {
@@ -59,7 +59,11 @@ const engine = (on: any, docs: Record<string, Doc>, opts: { cwd?: () => string; 
     const { ref } = e.args
     if (ref.object === 'project') {
       const d = docs[ref.id]
-      if (!d || d.fail) return { value: { content: [{ type: 'text', text: 'refused' }], isError: true } }
+      if (!d || d.gone) {
+        const deny = '{"verdict":"deny","reason":"access","hint":"no doc has this id"}'
+        return { value: { content: [{ type: 'text', text: deny }], isError: true } }
+      }
+      if (d.fail) return { value: { content: [{ type: 'text', text: 'connector offline' }], isError: true } }
       return text({
         files: [{ id: 'f1', name: d.title, content: { kind: 'node', id: `node-${ref.id}`, engine: 'prose' } }],
         frame: { slug: ref.id, url: `https://claude.ai/artifact/short-${ref.id}` },
@@ -179,6 +183,22 @@ test('5. a failed read keeps the item; a delete call removes it', async ($, on) 
   await turnEnd($)
   expect(await listed($)).toHaveLength(1)
   await $.tool.call({ tool: DELETE, ref: { object: 'project', id: 'd1' } })
+  expect(await listed($)).toHaveLength(0)
+})
+
+test('5b. a doc deleted elsewhere (the connector denies access) is removed at the next turn end', async ($, on) => {
+  mock.store(on)
+  const docs: Record<string, Doc> = { d1: { title: 'R', xml: xmlOf('R', li('(you) a')) } }
+  engine(on, docs)
+  await start($)
+  await write($, 'd1')
+  await turnEnd($)
+  expect(await listed($)).toHaveLength(1)
+  docs.d1 = { ...docs.d1!, gone: true }
+  await turnEnd($, { turnId: 't2' })
+  expect(await listed($)).toHaveLength(1) // not due yet: only touched docs are re-read within 5 minutes
+  await write($, 'd1')
+  await turnEnd($, { turnId: 't3' })
   expect(await listed($)).toHaveLength(0)
 })
 
