@@ -1,0 +1,6 @@
+{
+  "name": "needs-input-band",
+  "version": "0.1.0",
+  "description": "A band above the prompt listing research docs that wait on your input.",
+  "types": "./types/index.d.ts"
+}

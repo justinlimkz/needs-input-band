@@ -1,0 +1,5 @@
+{
+  "name": "justin-local",
+  "owner": { "name": "Justin" },
+  "plugins": [{ "name": "needs-input-band", "source": "./" }]
+}
